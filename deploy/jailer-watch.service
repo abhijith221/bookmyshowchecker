@@ -1,0 +1,21 @@
+# systemd unit for an always-on Linux box (Oracle Cloud free VM, VPS, Raspberry Pi).
+# Install:
+#   sudo cp deploy/jailer-watch.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now jailer-watch
+#   journalctl -u jailer-watch -f
+[Unit]
+Description=Jailer 2 BookMyShow watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Change User and paths to where you cloned the repo.
+User=ubuntu
+WorkingDirectory=/home/ubuntu/bookmyshowchecker
+ExecStart=/usr/bin/python3 /home/ubuntu/bookmyshowchecker/jailer_watch.py
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

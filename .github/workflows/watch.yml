@@ -1,0 +1,46 @@
+name: jailer-watch
+
+# Near-continuous watching on GitHub's free runners:
+# each run loops for ~5h40m checking every minute; the next scheduled run
+# waits in the concurrency queue and starts as soon as the previous one ends.
+# Use a PUBLIC repo (unlimited free minutes). Private repos only get 2000 min/month.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: jailer-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore state (so it doesn't re-alert every run)
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: jw-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: jw-state-
+
+      - name: Watch
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_FOR_SECONDS: "20400"
+        run: python jailer_watch.py
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: jw-state-${{ github.run_id }}-${{ github.run_attempt }}
