@@ -207,6 +207,24 @@ class LinkGenerationTests(unittest.TestCase):
         self.assertEqual(shows[0].event_code, "ET00998877")
         self.assertEqual(shows[0].event_url, "jailer-2-tamil")
 
+    def test_extract_shows_matches_by_target_event_code(self):
+        ce_data = {
+            "EventTitle": "Rajini 171 Title TBA",
+            "ChildEvents": [{
+                "EventName": "Rajini 171",
+                "EventCode": "ET00518674",
+                "EventUrl": "jailer-2",
+                "EventDimension": "2D",
+                "EventLanguage": "Tamil",
+                "ShowTimes": [show(f"{TARGET}0900", "s1")]
+            }]
+        }
+        data = resp(TARGET, [ce_data])
+        # Even if regex fails to match title "Rajini 171", event code ET00518674 matches!
+        shows = jw.extract_shows(data, "ASLC", TARGET, RE, "ET00518674")
+        self.assertEqual(len(shows), 1)
+        self.assertEqual(shows[0].event_code, "ET00518674")
+
     def test_open_message_contains_movie_date_and_theatre_links(self):
         s = jw.Show(
             venue="ASLC",

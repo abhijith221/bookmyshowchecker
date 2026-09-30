@@ -80,6 +80,8 @@ CITY_CODE = "triv"
 CITY_SLUG = "trivandrum"
 
 MOVIE = "Jailer 2"  # label used in messages; set via MOVIE_NAME
+MOVIE_EVENT_CODE = "ET00518674"  # BookMyShow official movie ID
+MOVIE_SLUG = "jailer-2"
 
 AVAIL = {"0": "SOLD OUT", "1": "almost full", "2": "filling fast", "3": "available"}
 
@@ -196,7 +198,9 @@ class Show:
         return self.session or f"{self.dt}|{self.screen}|{self.fmt}"
 
 
-def extract_shows(data: dict, venue: str, date: str, movie_re: re.Pattern) -> list[Show]:
+def extract_shows(
+    data: dict, venue: str, date: str, movie_re: re.Pattern, target_event_code: str = ""
+) -> list[Show]:
     """Return shows of the target movie on exactly `date`. Anything else is ignored."""
     out: list[Show] = []
     for block in data.get("ShowDetails") or []:
@@ -205,7 +209,14 @@ def extract_shows(data: dict, venue: str, date: str, movie_re: re.Pattern) -> li
         for ev in block.get("Event") or []:
             for ce in ev.get("ChildEvents") or []:
                 names = (ev.get("EventTitle", ""), ce.get("EventName", ""))
-                if not any(movie_re.search(normalize(n)) for n in names):
+                event_code = str(ce.get("EventCode") or "")
+                event_group = str(ce.get("EventGroup") or ev.get("EventGroup") or "")
+                matches_code = bool(
+                    target_event_code
+                    and (event_code == target_event_code or event_group == target_event_code)
+                )
+                matches_title = any(movie_re.search(normalize(n)) for n in names)
+                if not (matches_code or matches_title):
                     continue
                 event_code = str(ce.get("EventCode") or "")
                 event_url = str(ce.get("EventUrl") or "")
@@ -288,8 +299,8 @@ def movie_booking_link(
     """Direct BookMyShow link for the movie on the given date in the city."""
     c_slug = city_slug or CITY_SLUG
     c_code = city_code or CITY_CODE
-    code = show.event_code if show else ""
-    slug = show.event_url if show else ""
+    code = (show.event_code if show and show.event_code else "") or MOVIE_EVENT_CODE
+    slug = (show.event_url if show and show.event_url else "") or MOVIE_SLUG
     if not slug:
         slug = slugify(show.title if show and show.title else (movie_name or MOVIE))
     if code and slug:
@@ -466,7 +477,7 @@ def check_once(cfg, state: dict, tg: Notifier) -> int:
                 tg.send(f"✅ {MOVIE} checker reconnected to BookMyShow ({VENUE_NAMES.get(venue, venue)}).")
             health[venue] = {"fails": 0, "alerted": False, "events": event_count(data)}
 
-            shows = extract_shows(data, venue, date, cfg.movie_re)
+            shows = extract_shows(data, venue, date, cfg.movie_re, getattr(cfg, "movie_event_code", ""))
             prev = set(seen.get(k, []))
             added = [s for s in shows if s.key not in prev]
             summary.append(f"{venue}:{len(shows)}")
@@ -541,7 +552,6 @@ def parse_args():
     p.add_argument("--dry-run", action="store_true", help="print alerts instead of sending to Telegram")
     p.add_argument("--no-state", action="store_true", help="don't read/write the state file (for testing)")
     p.add_argument("--test-telegram", action="store_true", help="send a test message and exit")
-    p.add_argument("--test-booking-alert", action="store_true", help="send a test 'booking open' alert to Telegram to preview formatting")
     p.add_argument("--get-chat-id", action="store_true", help="print chat ids that recently messaged your bot")
     p.add_argument("--movie-regex", help="override MOVIE_REGEX")
     p.add_argument("--dates", help="override TARGET_DATES (comma separated YYYYMMDD, or 'today')")
@@ -557,11 +567,15 @@ def main() -> int:
     class Cfg:
         pass
 
-    global MOVIE, CITY_SLUG, CITY_CODE
+    global MOVIE, CITY_SLUG, CITY_CODE, MOVIE_EVENT_CODE, MOVIE_SLUG
     MOVIE = env("MOVIE_NAME", MOVIE)
+    MOVIE_EVENT_CODE = env("MOVIE_EVENT_CODE", MOVIE_EVENT_CODE)
+    MOVIE_SLUG = env("MOVIE_SLUG", MOVIE_SLUG)
     CITY_SLUG = env("CITY_SLUG", CITY_SLUG)
     CITY_CODE = env("CITY_CODE", CITY_CODE)
     cfg = Cfg()
+    cfg.movie_event_code = MOVIE_EVENT_CODE
+    cfg.movie_slug = MOVIE_SLUG
     cfg.open_browser = a.open_browser or env("OPEN_BROWSER", "false").lower() in ("true", "1", "yes")
     cfg.movie_re = re.compile(a.movie_regex or env("MOVIE_REGEX", r"\bjailer\s*(2|ii)\b"))
     dates = (a.dates or env("TARGET_DATES", "20261015")).replace("today", now_ist().strftime("%Y%m%d"))
@@ -605,27 +619,6 @@ def main() -> int:
         ok = tg.send(f"✅ {MOVIE} watcher: Telegram is set up correctly.")
         print("sent" if ok else "FAILED - check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
         return 0 if ok else 1
-    if a.test_booking_alert:
-        today = now_ist().strftime("%Y%m%d")
-        sample_shows = []
-        try:
-            data = fetch_showtimes("ASLC", today)
-            live_shows = extract_shows(data, "ASLC", today, re.compile(r".*"))
-            if live_shows:
-                first_title = live_shows[0].title
-                sample_shows = [s for s in live_shows if s.title == first_title][:cfg.earliest_n]
-        except Exception:
-            pass
-
-        if not sample_shows:
-            target_date = cfg.dates[0] if cfg.dates else "20261015"
-            msg = open_message("ASLC", target_date, [], cfg.earliest_n, primary=True)
-        else:
-            msg = open_message("ASLC", today, sample_shows, cfg.earliest_n, primary=True)
-
-        ok = tg.send(msg)
-        print("Test booking alert sent to Telegram!" if ok else "FAILED - check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
-        return 0 if ok else 1
     if not (tg.token and tg.chat_id) and not a.dry_run:
         print("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set (or use --dry-run).", file=sys.stderr)
         return 2
@@ -636,14 +629,22 @@ def main() -> int:
     log(f"watching {cfg.movie_re.pattern!r} on {cfg.dates} at {cfg.venues} every ~{cfg.poll}s (+{cfg.poll_jitter:.0f}s jitter)")
     if env("STARTUP_ALERT", "true").lower() in ("true", "1", "yes") and not a.once:
         dates_str = ", ".join(fmt_date(d) for d in cfg.dates)
-        top_venues = ", ".join(VENUE_NAMES.get(v, v).split(",")[0] for v in cfg.venues[:3])
-        if len(cfg.venues) > 3:
-            top_venues += f" +{len(cfg.venues) - 3} more"
+        primary_name = VENUE_NAMES.get(cfg.venues[0], cfg.venues[0])
+        other_names = [VENUE_NAMES.get(v, v) for v in cfg.venues[1:]]
+        other_str = "\n• " + "\n• ".join(html.escape(n) for n in other_names)
+        m_link = movie_booking_link(None, cfg.dates[0], MOVIE)
+        t_link = theatre_booking_link(cfg.venues[0], cfg.dates[0])
         tg.send(
-            f"🚀 <b>{html.escape(MOVIE)} watcher is active</b>\n"
-            f"📅 Watching: {dates_str}\n"
-            f"📍 {len(cfg.venues)} theatres ({html.escape(top_venues)})\n"
-            f"⏱ Checking every ~{cfg.poll}s. You'll get an instant alert the second booking opens!"
+            f"🚀 <b>{html.escape(MOVIE)} Watcher Connected & Active</b>\n\n"
+            f"📍 <b>Primary Theatre:</b>\n• {html.escape(primary_name)} (checked every ~{cfg.poll}s)\n\n"
+            f"🏛 <b>Other Theatres:</b>{other_str}\n\n"
+            f"📅 <b>Target Date:</b> {dates_str}\n"
+            f"🎬 <b>BookMyShow Movie ID:</b> <code>{html.escape(MOVIE_EVENT_CODE)}</code>\n\n"
+            f"👉 <b>DIRECT LINKS:</b>\n"
+            f'🎬 <b>Movie:</b> <a href="{m_link}">Book {html.escape(MOVIE)} on BMS ({fmt_date(cfg.dates[0])})</a>\n'
+            f'🏛 <b>Ariesplex BMS:</b> <a href="{t_link}">{html.escape(primary_name)} ({fmt_date(cfg.dates[0])})</a>\n'
+            f'🍿 <b>Ariesplex Direct:</b> <a href="https://www.ariesplex.com/book-tickets">ariesplex.com/book-tickets</a>\n\n'
+            f"<i>Monitoring 24/7. You will receive an immediate loud alert the second booking opens!</i>"
         )
     started = time.monotonic()
     while True:
