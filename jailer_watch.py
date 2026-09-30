@@ -634,7 +634,7 @@ def main() -> int:
         other_str = "\n• " + "\n• ".join(html.escape(n) for n in other_names)
         m_link = movie_booking_link(None, cfg.dates[0], MOVIE)
         t_link = theatre_booking_link(cfg.venues[0], cfg.dates[0])
-        tg.send(
+        ok = tg.send(
             f"🚀 <b>{html.escape(MOVIE)} Watcher Connected & Active</b>\n\n"
             f"📍 <b>Primary Theatre:</b>\n• {html.escape(primary_name)} (checked every ~{cfg.poll}s)\n\n"
             f"🏛 <b>Other Theatres:</b>{other_str}\n\n"
@@ -646,6 +646,10 @@ def main() -> int:
             f'🍿 <b>Ariesplex Direct:</b> <a href="https://www.ariesplex.com/book-tickets">ariesplex.com/book-tickets</a>\n\n'
             f"<i>Monitoring 24/7. You will receive an immediate loud alert the second booking opens!</i>"
         )
+        if ok:
+            log("sent startup connection alert to Telegram")
+        else:
+            log("startup connection alert to Telegram failed or was skipped")
     started = time.monotonic()
     while True:
         state = load_state(state_path)

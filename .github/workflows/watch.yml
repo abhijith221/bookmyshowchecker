@@ -8,10 +8,12 @@ on:
   schedule:
     - cron: "*/30 * * * *"
   workflow_dispatch:
+  push:
+    branches: [main]
 
 concurrency:
   group: jailer-watch
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   watch:
@@ -33,8 +35,10 @@ jobs:
 
       - name: Watch
         env:
+          PYTHONUNBUFFERED: "1"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STARTUP_ALERT: "true"
           RUN_FOR_SECONDS: "20400"
         run: python jailer_watch.py
 
