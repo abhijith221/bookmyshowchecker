@@ -344,10 +344,10 @@ def open_message(venue: str, date: str, shows: list[Show], n: int, primary: bool
     t_link = theatre_booking_link(venue, date)
 
     lines.append("")
-    lines.append(f'🎬 <a href="{m_link}">Book {html.escape(MOVIE)} on BookMyShow ({day_str})</a>')
-    lines.append(f'🏛 <a href="{t_link}">{name} on BookMyShow ({day_str})</a>')
+    lines.append(f'🎬 <b>Movie:</b> <a href="{m_link}">Book {html.escape(MOVIE)} ({day_str})</a>')
+    lines.append(f'🏛 <b>Theatre:</b> <a href="{t_link}">{name} ({day_str})</a>')
     if venue == "ASLC":
-        lines.append('🍿 <a href="https://www.ariesplex.com/book-tickets">Book on ariesplex.com</a>')
+        lines.append('🍿 <b>Ariesplex:</b> <a href="https://www.ariesplex.com/book-tickets">ariesplex.com/book-tickets</a>')
     return "\n".join(lines)
 
 
@@ -355,19 +355,19 @@ def new_shows_message(venue: str, date: str, added: list[Show], all_shows: list[
     name = html.escape(VENUE_NAMES.get(venue, venue))
     head = f"🔥 <b>NEW EARLIER {html.escape(MOVIE)} show added</b>" if earlier else f"➕ <b>More {html.escape(MOVIE)} shows added</b>"
     day_str = fmt_date(date)
-    lines = [head, f"📍 {name} — {day_str}", ""]
+    lines = [head, f"📍 <b>{name}</b> — {day_str}", ""]
     lines += [fmt_show(s, "• ") for s in added[:10]]
-    lines += ["", f"Earliest now: {html.escape(all_shows[0].time)} ({html.escape(all_shows[0].screen)})"]
+    lines += ["", f"Earliest now: <b>{html.escape(all_shows[0].time)}</b> ({html.escape(all_shows[0].screen)})"]
 
     first_show = all_shows[0] if all_shows else (added[0] if added else None)
     m_link = movie_booking_link(first_show, date, MOVIE)
     t_link = theatre_booking_link(venue, date)
 
     lines.append("")
-    lines.append(f'🎬 <a href="{m_link}">Book {html.escape(MOVIE)} on BookMyShow ({day_str})</a>')
-    lines.append(f'🏛 <a href="{t_link}">{name} on BookMyShow ({day_str})</a>')
+    lines.append(f'🎬 <b>Movie:</b> <a href="{m_link}">Book {html.escape(MOVIE)} ({day_str})</a>')
+    lines.append(f'🏛 <b>Theatre:</b> <a href="{t_link}">{name} ({day_str})</a>')
     if venue == "ASLC":
-        lines.append('🍿 <a href="https://www.ariesplex.com/book-tickets">Book on ariesplex.com</a>')
+        lines.append('🍿 <b>Ariesplex:</b> <a href="https://www.ariesplex.com/book-tickets">ariesplex.com/book-tickets</a>')
     return "\n".join(lines)
 
 
@@ -529,6 +529,7 @@ def parse_args():
     p.add_argument("--dry-run", action="store_true", help="print alerts instead of sending to Telegram")
     p.add_argument("--no-state", action="store_true", help="don't read/write the state file (for testing)")
     p.add_argument("--test-telegram", action="store_true", help="send a test message and exit")
+    p.add_argument("--test-booking-alert", action="store_true", help="send a test 'booking open' alert to Telegram to preview formatting")
     p.add_argument("--get-chat-id", action="store_true", help="print chat ids that recently messaged your bot")
     p.add_argument("--movie-regex", help="override MOVIE_REGEX")
     p.add_argument("--dates", help="override TARGET_DATES (comma separated YYYYMMDD, or 'today')")
@@ -553,7 +554,7 @@ def main() -> int:
     cfg.movie_re = re.compile(a.movie_regex or env("MOVIE_REGEX", r"\bjailer\s*(2|ii)\b"))
     dates = (a.dates or env("TARGET_DATES", "20261015")).replace("today", now_ist().strftime("%Y%m%d"))
     cfg.dates = [d.strip() for d in dates.split(",") if d.strip()]
-    cfg.venues = [v.strip().upper() for v in (a.venues or env("VENUES", "ASLC,KSNT,PLTD,PKKT,CMTT,CNGE")).split(",") if v.strip()]
+    cfg.venues = [v.strip().upper() for v in (a.venues or env("VENUES", "ASLC,KSNT,PLTD,PKKT,CMTT")).split(",") if v.strip()]
     cfg.poll = max(30, int(env("POLL_SECONDS", "60")))
     cfg.earliest_n = int(env("EARLIEST_N", "6"))
     cfg.primary_repeat = int(env("PRIMARY_REPEAT", "3"))
@@ -591,6 +592,50 @@ def main() -> int:
     if a.test_telegram:
         ok = tg.send(f"✅ {MOVIE} watcher: Telegram is set up correctly.")
         print("sent" if ok else "FAILED - check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
+        return 0 if ok else 1
+    if a.test_booking_alert:
+        target_date = cfg.dates[0] if cfg.dates else "20261015"
+        sample_shows = [
+            Show(
+                venue="ASLC", date=target_date, dt=f"{target_date}0400", time="04:00 AM",
+                screen="AUDI 1", attrs="RGB 4K ATMOS", fmt="2D", lang="Tamil",
+                title=f"{MOVIE} - Tamil", min_price="250.00", max_price="500.00",
+                avail="available", session="1001", event_code="ET00123456", event_url=slugify(MOVIE),
+            ),
+            Show(
+                venue="ASLC", date=target_date, dt=f"{target_date}0730", time="07:30 AM",
+                screen="AUDI 1", attrs="RGB 4K ATMOS", fmt="2D", lang="Tamil",
+                title=f"{MOVIE} - Tamil", min_price="200.00", max_price="450.00",
+                avail="filling fast", session="1002", event_code="ET00123456", event_url=slugify(MOVIE),
+            ),
+            Show(
+                venue="ASLC", date=target_date, dt=f"{target_date}1100", time="11:00 AM",
+                screen="AUDI 1", attrs="RGB 4K ATMOS", fmt="2D", lang="Tamil",
+                title=f"{MOVIE} - Tamil", min_price="200.00", max_price="450.00",
+                avail="available", session="1003", event_code="ET00123456", event_url=slugify(MOVIE),
+            ),
+            Show(
+                venue="ASLC", date=target_date, dt=f"{target_date}1430", time="02:30 PM",
+                screen="AUDI 1", attrs="RGB 4K ATMOS", fmt="2D", lang="Tamil",
+                title=f"{MOVIE} - Tamil", min_price="200.00", max_price="450.00",
+                avail="available", session="1004", event_code="ET00123456", event_url=slugify(MOVIE),
+            ),
+            Show(
+                venue="ASLC", date=target_date, dt=f"{target_date}1800", time="06:00 PM",
+                screen="AUDI 1", attrs="RGB 4K ATMOS", fmt="2D", lang="Tamil",
+                title=f"{MOVIE} - Tamil", min_price="200.00", max_price="450.00",
+                avail="available", session="1005", event_code="ET00123456", event_url=slugify(MOVIE),
+            ),
+            Show(
+                venue="ASLC", date=target_date, dt=f"{target_date}2130", time="09:30 PM",
+                screen="AUDI 1", attrs="RGB 4K ATMOS", fmt="2D", lang="Tamil",
+                title=f"{MOVIE} - Tamil", min_price="200.00", max_price="450.00",
+                avail="available", session="1006", event_code="ET00123456", event_url=slugify(MOVIE),
+            ),
+        ]
+        msg = open_message("ASLC", target_date, sample_shows, cfg.earliest_n, primary=True)
+        ok = tg.send(msg)
+        print("Test booking alert sent to Telegram!" if ok else "FAILED - check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
         return 0 if ok else 1
     if not (tg.token and tg.chat_id) and not a.dry_run:
         print("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set (or use --dry-run).", file=sys.stderr)

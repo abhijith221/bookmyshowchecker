@@ -3,7 +3,7 @@
 Sends a Telegram alert when BookMyShow opens **Jailer 2** bookings for the
 **opening day (Thu 15 Oct 2026)** at **Ariesplex SL Cinemas**, listing the
 **earliest shows first**. It also watches Kairali Sree Nila, PVR Lulu, PVR Kripa,
-Cinepolis MOT and Greenfield Moviemax (ex-Carnival).
+and Cinepolis MOT.
 
 - 🚨 Ariesplex opens → loud alert (3 pings) with the earliest shows, screen, format, price, availability, direct movie booking link on BookMyShow for that date, theatre showtimes link on BookMyShow for that date, and ariesplex.com
 - ➕ More shows added later (for example a 4 AM fan show) → another alert with direct movie and theatre links for that date, marked 🔥 if it's earlier than anything seen before
@@ -77,10 +77,9 @@ journalctl -u jailer-watch -f
 | `PLTD` | PVR Lulu Mall | Only **IMAX** in the city, plus 4DX, Atmos and LUXE recliners. |
 | `PKKT` | PVR Kripa, Thampanoor | Classic fan-show venue. |
 | `CMTT` | Cinepolis, Mall of Travancore | Was Carnival MOT. Audi 4 = Dolby Atmos. |
-| `CNGE` | Greenfield Moviemax, Karyavattom | Was Carnival Greenfield. The Carnival brand has shut down in India. |
 
 Change the list with `VENUES=` in `.env` (the first code gets the loud alert).
-Other codes: `TGNT` New Theatre, `SPTT` Sree Padmanabha, `LCTM` Lenin, `KBTT` Kalabhavan, `ATTR` Ajanta.
+Other codes: `TGNT` New Theatre, `SPTT` Sree Padmanabha, `LCTM` Lenin, `KBTT` Kalabhavan, `ATTR` Ajanta, `CNGE` Greenfield Moviemax.
 
 ## Rate limits & IP blocking
 
