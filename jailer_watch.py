@@ -403,6 +403,9 @@ def check_once(cfg, state: dict, tg: Notifier) -> int:
     seen: dict = state.setdefault("seen", {})
     health: dict = state.setdefault("health", {})
     primary = cfg.venues[0]
+    secondary = [v for v in cfg.venues if v != primary]
+    # Primary always first; secondary venues randomized each cycle to prevent predictable request sequences
+    venues_to_check = [primary] + sorted(secondary, key=lambda _: random.random())
     summary = []
     other_every = max(1, getattr(cfg, "other_every", 1))
     gap = getattr(cfg, "request_gap", (0, 0))
@@ -412,7 +415,7 @@ def check_once(cfg, state: dict, tg: Notifier) -> int:
     requests_made = 0
     any_ok = False
 
-    for venue in cfg.venues:
+    for venue in venues_to_check:
         # Ariesplex every cycle; the others less often to keep request volume low.
         if venue != primary and (cycle - 1) % other_every:
             continue
@@ -559,7 +562,10 @@ def main() -> int:
     cfg.fail_alert_minutes = int(env("FAIL_ALERT_MINUTES", "15"))
     cfg.other_every = int(env("OTHER_VENUES_EVERY", "3"))  # non-primary venues every Nth cycle
     cfg.max_backoff = int(env("MAX_BACKOFF_SECONDS", "900"))
-    cfg.request_gap = (1.5, 4.0)  # seconds between requests within a cycle
+    gap_min = float(env("REQUEST_GAP_MIN", "3.0"))
+    gap_max = float(env("REQUEST_GAP_MAX", "8.0"))
+    cfg.request_gap = (min(gap_min, gap_max), max(gap_min, gap_max))
+    cfg.poll_jitter = max(0.0, float(env("POLL_JITTER_SECONDS", "30.0")))
     run_for = int(env("RUN_FOR_SECONDS", "0"))  # 0 = forever (GitHub Actions sets this)
     stop_after = now_ist().date() > datetime.strptime(cfg.dates[-1], "%Y%m%d").date() + timedelta(days=1)
 
@@ -593,7 +599,7 @@ def main() -> int:
         log("target date has passed; nothing to watch")
         return 0
 
-    log(f"watching {cfg.movie_re.pattern!r} on {cfg.dates} at {cfg.venues} every ~{cfg.poll}s")
+    log(f"watching {cfg.movie_re.pattern!r} on {cfg.dates} at {cfg.venues} every ~{cfg.poll}s (+{cfg.poll_jitter:.0f}s jitter)")
     started = time.monotonic()
     while True:
         state = load_state(state_path)
@@ -606,7 +612,8 @@ def main() -> int:
         elapsed = time.monotonic() - started
         if a.once or (run_for and elapsed > run_for):
             return 0
-        wait = max(cfg.poll, cooldown) + random.uniform(-5, 5)
+        jitter = random.uniform(0, getattr(cfg, "poll_jitter", 30.0))
+        wait = max(cfg.poll, cooldown) + jitter
         if run_for:  # don't overshoot the GitHub Actions window while backing off
             wait = min(wait, max(1, run_for - elapsed + 1))
         time.sleep(wait)
