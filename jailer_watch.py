@@ -60,6 +60,25 @@ VENUE_NAMES = {
     "SPMT": "Sree Padmanabha Screen 2 (Devipriya)",
 }
 
+# BookMyShow venue slugs for direct cinema showtime links
+VENUE_SLUGS = {
+    "ASLC": "ariesplex-sl-cinemas-cinionic-dolby-atmos",
+    "PLTD": "pvr-lulu-trivandrum",
+    "TGNT": "new-theatre-4k-rgb-laser-dolby-atmos-trivandrum",
+    "SPTT": "sree-padmanabha-theatre-trivandrum",
+    "CMTT": "cinepolis-mot-trivandrum",
+    "CNGE": "greenfield-moviemax-cinemas-trivandrum",
+    "LCTM": "lenin-cinemas-4k-3d-dolby-atmos-ksfdc-trivandrum",
+    "KSNT": "kairali-theatre-trivandrum",
+    "PKKT": "pvr-kripa-thampanoor-trivandrum",
+    "KBTT": "kalabhavan-theatre-triple-beam-3d-trivandrum",
+    "ATTR": "ajanta-theatre-4k-wide-trivandrum",
+    "SPMT": "sree-padmanabha-theatre-screen-2-east-fort",
+}
+
+CITY_CODE = "triv"
+CITY_SLUG = "trivandrum"
+
 MOVIE = "Jailer 2"  # label used in messages; set via MOVIE_NAME
 
 AVAIL = {"0": "SOLD OUT", "1": "almost full", "2": "filling fast", "3": "available"}
@@ -169,6 +188,8 @@ class Show:
     max_price: str
     avail: str
     session: str
+    event_code: str = ""
+    event_url: str = ""
 
     @property
     def key(self) -> str:
@@ -186,6 +207,8 @@ def extract_shows(data: dict, venue: str, date: str, movie_re: re.Pattern) -> li
                 names = (ev.get("EventTitle", ""), ce.get("EventName", ""))
                 if not any(movie_re.search(normalize(n)) for n in names):
                     continue
+                event_code = str(ce.get("EventCode") or "")
+                event_url = str(ce.get("EventUrl") or "")
                 for st in ce.get("ShowTimes") or []:
                     sdt = str(st.get("ShowDateTime", ""))
                     if str(st.get("ShowDateCode", date)) != date or not sdt.startswith(date):
@@ -205,6 +228,8 @@ def extract_shows(data: dict, venue: str, date: str, movie_re: re.Pattern) -> li
                             max_price=str(st.get("MaxPrice", "")),
                             avail=AVAIL.get(str(st.get("AvailStatus")), "?"),
                             session=str(st.get("SessionId", "")),
+                            event_code=event_code,
+                            event_url=event_url,
                         )
                     )
     out.sort(key=lambda s: s.dt)
@@ -226,7 +251,9 @@ class Notifier:
 
     def send(self, text: str) -> bool:
         if self.dry_run or not (self.token and self.chat_id):
-            print("----- TELEGRAM (not sent) -----\n" + re.sub(r"<[^>]+>", "", text) + "\n-------------------------------", flush=True)
+            clean = re.sub(r'<a\s+href="([^"]+)">([^<]+)</a>', r'\2 (\1)', text)
+            clean = html.unescape(re.sub(r"<[^>]+>", "", clean))
+            print("----- TELEGRAM (not sent) -----\n" + clean + "\n-------------------------------", flush=True)
             return self.dry_run
         body = urllib.parse.urlencode(
             {"chat_id": self.chat_id, "text": text[:4000], "parse_mode": "HTML", "disable_web_page_preview": "true"}
@@ -247,8 +274,49 @@ class Notifier:
         return False
 
 
+def slugify(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (s or "").lower()).strip("-")
+
+
+def movie_booking_link(
+    show: Show | None,
+    date: str,
+    movie_name: str = "",
+    city_slug: str = "",
+    city_code: str = "",
+) -> str:
+    """Direct BookMyShow link for the movie on the given date in the city."""
+    c_slug = city_slug or CITY_SLUG
+    c_code = city_code or CITY_CODE
+    code = show.event_code if show else ""
+    slug = show.event_url if show else ""
+    if not slug:
+        slug = slugify(show.title if show and show.title else (movie_name or MOVIE))
+    if code and slug:
+        return f"https://in.bookmyshow.com/buytickets/{slug}-{c_slug}/movie-{c_code}-{code}-MT/{date}"
+    if code:
+        return f"https://in.bookmyshow.com/buytickets/{c_slug}/movie-{c_code}-{code}-MT/{date}"
+    if slug:
+        return f"https://in.bookmyshow.com/{c_slug}/movies/{slug}"
+    return f"https://in.bookmyshow.com/{c_slug}/movies"
+
+
+def theatre_booking_link(
+    venue: str,
+    date: str,
+    city_code: str = "",
+) -> str:
+    """Direct BookMyShow link for the theatre on the given date."""
+    c_code = city_code or CITY_CODE
+    slug = VENUE_SLUGS.get(venue) or slugify(VENUE_NAMES.get(venue, venue))
+    if slug:
+        return f"https://in.bookmyshow.com/cinemas/{c_code}/{slug}/buytickets/{venue}/{date}"
+    return f"https://in.bookmyshow.com/cinemas/{c_code}/cinema/buytickets/{venue}/{date}"
+
+
 def booking_link(venue: str, date: str) -> str:
-    return f"https://in.bookmyshow.com/buytickets/x/cinema-triv-{venue}-MT/{date}"
+    """Backward-compatible alias for theatre_booking_link."""
+    return theatre_booking_link(venue, date)
 
 
 def fmt_date(date: str) -> str:
@@ -265,23 +333,41 @@ def fmt_show(s: Show, mark: str = "") -> str:
 def open_message(venue: str, date: str, shows: list[Show], n: int, primary: bool) -> str:
     name = html.escape(VENUE_NAMES.get(venue, venue))
     head = f"🚨🚨 <b>{html.escape(MOVIE.upper())} BOOKING OPEN</b> 🚨🚨" if primary else f"🎟 <b>{html.escape(MOVIE)} booking open</b>"
-    lines = [head, f"📍 <b>{name}</b>", f"📅 {fmt_date(date)} — {len(shows)} show(s)", "", "<b>Earliest shows:</b>"]
+    day_str = fmt_date(date)
+    lines = [head, f"📍 <b>{name}</b>", f"📅 {day_str} — {len(shows)} show(s)", "", "<b>Earliest shows:</b>"]
     lines += [fmt_show(s, "🔥 " if i == 0 else "• ") for i, s in enumerate(shows[:n])]
     if len(shows) > n:
         lines.append(f"…and {len(shows) - n} more")
-    lines += ["", f'👉 <a href="{booking_link(venue, date)}">Book on BookMyShow</a>']
+
+    first_show = shows[0] if shows else None
+    m_link = movie_booking_link(first_show, date, MOVIE)
+    t_link = theatre_booking_link(venue, date)
+
+    lines.append("")
+    lines.append(f'🎬 <a href="{m_link}">Book {html.escape(MOVIE)} on BookMyShow ({day_str})</a>')
+    lines.append(f'🏛 <a href="{t_link}">{name} on BookMyShow ({day_str})</a>')
     if venue == "ASLC":
-        lines.append('👉 <a href="https://www.ariesplex.com/book-tickets">Book on ariesplex.com</a>')
+        lines.append('🍿 <a href="https://www.ariesplex.com/book-tickets">Book on ariesplex.com</a>')
     return "\n".join(lines)
 
 
 def new_shows_message(venue: str, date: str, added: list[Show], all_shows: list[Show], earlier: bool) -> str:
     name = html.escape(VENUE_NAMES.get(venue, venue))
     head = f"🔥 <b>NEW EARLIER {html.escape(MOVIE)} show added</b>" if earlier else f"➕ <b>More {html.escape(MOVIE)} shows added</b>"
-    lines = [head, f"📍 {name} — {fmt_date(date)}", ""]
+    day_str = fmt_date(date)
+    lines = [head, f"📍 {name} — {day_str}", ""]
     lines += [fmt_show(s, "• ") for s in added[:10]]
-    lines += ["", f"Earliest now: {html.escape(all_shows[0].time)} ({html.escape(all_shows[0].screen)})",
-              f'👉 <a href="{booking_link(venue, date)}">Book on BookMyShow</a>']
+    lines += ["", f"Earliest now: {html.escape(all_shows[0].time)} ({html.escape(all_shows[0].screen)})"]
+
+    first_show = all_shows[0] if all_shows else (added[0] if added else None)
+    m_link = movie_booking_link(first_show, date, MOVIE)
+    t_link = theatre_booking_link(venue, date)
+
+    lines.append("")
+    lines.append(f'🎬 <a href="{m_link}">Book {html.escape(MOVIE)} on BookMyShow ({day_str})</a>')
+    lines.append(f'🏛 <a href="{t_link}">{name} on BookMyShow ({day_str})</a>')
+    if venue == "ASLC":
+        lines.append('🍿 <a href="https://www.ariesplex.com/book-tickets">Book on ariesplex.com</a>')
     return "\n".join(lines)
 
 
@@ -381,10 +467,20 @@ def check_once(cfg, state: dict, tg: Notifier) -> int:
                 repeats = 1
 
             log(f"ALERT {venue} {date}: {len(added)} new show(s), earliest {shows[0].time}")
+            if getattr(cfg, "open_browser", False):
+                import webbrowser
+                webbrowser.open(movie_booking_link(shows[0], date, MOVIE) or theatre_booking_link(venue, date))
             ok = tg.send(msg)
             for _ in range(repeats - 1):
                 time.sleep(2)
-                tg.send(f"🚨 {MOVIE} — Ariesplex booking is OPEN. Go book now! 🚨" if venue == "ASLC" else msg)
+                repeat_msg = (
+                    f"🚨 <b>{html.escape(MOVIE)} — Ariesplex booking is OPEN!</b> 🚨\n"
+                    f"📅 {fmt_date(date)}\n"
+                    f'🎬 <a href="{movie_booking_link(shows[0], date, MOVIE)}">Book {html.escape(MOVIE)} on BookMyShow ({fmt_date(date)})</a>\n'
+                    f'🍿 <a href="https://www.ariesplex.com/book-tickets">Book on ariesplex.com</a>'
+                    if venue == "ASLC" else msg
+                )
+                tg.send(repeat_msg)
             if ok:  # only remember shows once the user has actually been told
                 seen[k] = sorted(prev | {s.key for s in shows})
             else:
@@ -434,6 +530,7 @@ def parse_args():
     p.add_argument("--movie-regex", help="override MOVIE_REGEX")
     p.add_argument("--dates", help="override TARGET_DATES (comma separated YYYYMMDD, or 'today')")
     p.add_argument("--venues", help="override VENUES (comma separated BMS venue codes, first = primary)")
+    p.add_argument("--open-browser", action="store_true", help="open BookMyShow in your browser automatically when bookings open")
     return p.parse_args()
 
 
@@ -444,9 +541,12 @@ def main() -> int:
     class Cfg:
         pass
 
-    global MOVIE
+    global MOVIE, CITY_SLUG, CITY_CODE
     MOVIE = env("MOVIE_NAME", MOVIE)
+    CITY_SLUG = env("CITY_SLUG", CITY_SLUG)
+    CITY_CODE = env("CITY_CODE", CITY_CODE)
     cfg = Cfg()
+    cfg.open_browser = a.open_browser or env("OPEN_BROWSER", "false").lower() in ("true", "1", "yes")
     cfg.movie_re = re.compile(a.movie_regex or env("MOVIE_REGEX", r"\bjailer\s*(2|ii)\b"))
     dates = (a.dates or env("TARGET_DATES", "20261015")).replace("today", now_ist().strftime("%Y%m%d"))
     cfg.dates = [d.strip() for d in dates.split(",") if d.strip()]

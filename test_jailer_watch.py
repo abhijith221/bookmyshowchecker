@@ -147,5 +147,117 @@ class RateLimitTests(unittest.TestCase):
         self.assertEqual(uo.call_count, 1)
 
 
+class LinkGenerationTests(unittest.TestCase):
+    def test_theatre_booking_link_known_and_unknown(self):
+        # Known venue in Trivandrum
+        aslc_link = jw.theatre_booking_link("ASLC", TARGET)
+        self.assertEqual(
+            aslc_link,
+            f"https://in.bookmyshow.com/cinemas/triv/ariesplex-sl-cinemas-cinionic-dolby-atmos/buytickets/ASLC/{TARGET}",
+        )
+        # Backward compatibility alias
+        self.assertEqual(jw.booking_link("ASLC", TARGET), aslc_link)
+
+        # Fallback for unknown venue
+        unknown_link = jw.theatre_booking_link("XYZT", TARGET)
+        self.assertEqual(
+            unknown_link,
+            f"https://in.bookmyshow.com/cinemas/triv/xyzt/buytickets/XYZT/{TARGET}",
+        )
+
+    def test_movie_booking_link(self):
+        s = jw.Show(
+            venue="ASLC",
+            date=TARGET,
+            dt=f"{TARGET}0900",
+            time="09:00 AM",
+            screen="AUDI 1",
+            attrs="",
+            fmt="2D",
+            lang="Tamil",
+            title="Jailer 2",
+            min_price="200",
+            max_price="400",
+            avail="available",
+            session="s1",
+            event_code="ET00123456",
+            event_url="jailer-2",
+        )
+        url = jw.movie_booking_link(s, TARGET, "Jailer 2")
+        self.assertEqual(
+            url,
+            f"https://in.bookmyshow.com/buytickets/jailer-2-trivandrum/movie-triv-ET00123456-MT/{TARGET}",
+        )
+
+    def test_extract_shows_captures_event_metadata(self):
+        ce_data = {
+            "EventTitle": "Jailer 2",
+            "ChildEvents": [{
+                "EventName": "Jailer 2 - Tamil",
+                "EventCode": "ET00998877",
+                "EventUrl": "jailer-2-tamil",
+                "EventDimension": "2D",
+                "EventLanguage": "Tamil",
+                "ShowTimes": [show(f"{TARGET}0900", "s1")]
+            }]
+        }
+        data = resp(TARGET, [ce_data])
+        shows = jw.extract_shows(data, "ASLC", TARGET, RE)
+        self.assertEqual(len(shows), 1)
+        self.assertEqual(shows[0].event_code, "ET00998877")
+        self.assertEqual(shows[0].event_url, "jailer-2-tamil")
+
+    def test_open_message_contains_movie_date_and_theatre_links(self):
+        s = jw.Show(
+            venue="ASLC",
+            date=TARGET,
+            dt=f"{TARGET}0900",
+            time="09:00 AM",
+            screen="AUDI 1",
+            attrs="RGB 4K ATMOS",
+            fmt="2D",
+            lang="Tamil",
+            title="Jailer 2",
+            min_price="200",
+            max_price="400",
+            avail="available",
+            session="s1",
+            event_code="ET00123456",
+            event_url="jailer-2",
+        )
+        msg = jw.open_message("ASLC", TARGET, [s], 5, True)
+        self.assertIn("BOOKING OPEN", msg)
+        self.assertIn(TARGET, msg)
+        # Contains movie booking link with date
+        self.assertIn(f"movie-triv-ET00123456-MT/{TARGET}", msg)
+        # Contains theatre booking link with date
+        self.assertIn(f"buytickets/ASLC/{TARGET}", msg)
+        # ASLC includes direct ariesplex link
+        self.assertIn("https://www.ariesplex.com/book-tickets", msg)
+
+    def test_new_shows_message_contains_movie_date_and_theatre_links(self):
+        s = jw.Show(
+            venue="PLTD",
+            date=TARGET,
+            dt=f"{TARGET}0400",
+            time="04:00 AM",
+            screen="IMAX",
+            attrs="",
+            fmt="3D",
+            lang="Tamil",
+            title="Jailer 2",
+            min_price="300",
+            max_price="600",
+            avail="available",
+            session="s0",
+            event_code="ET00123456",
+            event_url="jailer-2",
+        )
+        msg = jw.new_shows_message("PLTD", TARGET, [s], [s], True)
+        self.assertIn("NEW EARLIER", msg)
+        self.assertIn(f"movie-triv-ET00123456-MT/{TARGET}", msg)
+        self.assertIn(f"buytickets/PLTD/{TARGET}", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

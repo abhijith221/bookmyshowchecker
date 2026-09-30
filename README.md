@@ -5,8 +5,8 @@ Sends a Telegram alert when BookMyShow opens **Jailer 2** bookings for the
 **earliest shows first**. It also watches Kairali Sree Nila, PVR Lulu, PVR Kripa,
 Cinepolis MOT and Greenfield Moviemax (ex-Carnival).
 
-- 🚨 Ariesplex opens → loud alert (3 pings) with the earliest shows, screen, format, price, availability and a booking link
-- ➕ More shows added later (for example a 4 AM fan show) → another alert, marked 🔥 if it's earlier than anything seen before
+- 🚨 Ariesplex opens → loud alert (3 pings) with the earliest shows, screen, format, price, availability, direct movie booking link on BookMyShow for that date, theatre showtimes link on BookMyShow for that date, and ariesplex.com
+- ➕ More shows added later (for example a 4 AM fan show) → another alert with direct movie and theatre links for that date, marked 🔥 if it's earlier than anything seen before
 - ⚠️ BookMyShow unreachable or rate-limiting → it backs off automatically and warns you, then ✅ when it recovers
 - 👀 A daily "still alive" message at 9 AM IST, so silence never means "broken"
 
