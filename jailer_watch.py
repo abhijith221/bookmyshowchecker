@@ -334,21 +334,26 @@ def open_message(venue: str, date: str, shows: list[Show], n: int, primary: bool
     name = html.escape(VENUE_NAMES.get(venue, venue))
     head = f"🚨🚨 <b>{html.escape(MOVIE.upper())} BOOKING OPEN</b> 🚨🚨" if primary else f"🎟 <b>{html.escape(MOVIE)} booking open</b>"
     day_str = fmt_date(date)
-    lines = [head, f"📍 <b>{name}</b>", f"📅 {day_str} — {len(shows)} show(s)", "", "<b>Earliest shows:</b>"]
-    lines += [fmt_show(s, "🔥 " if i == 0 else "• ") for i, s in enumerate(shows[:n])]
-    if len(shows) > n:
-        lines.append(f"…and {len(shows) - n} more")
+    show_count = f" — {len(shows)} show(s)" if shows else ""
+    lines = [head, f"📍 <b>{name}</b>", f"📅 {day_str}{show_count}", ""]
 
     first_show = shows[0] if shows else None
     movie_name = first_show.title if first_show and first_show.title else MOVIE
     m_link = movie_booking_link(first_show, date, MOVIE)
     t_link = theatre_booking_link(venue, date)
 
-    lines.append("")
+    lines.append("👉 <b>BOOK TICKETS NOW:</b>")
     lines.append(f'🎬 <b>Movie:</b> <a href="{m_link}">Book {html.escape(movie_name)} ({day_str})</a>')
     lines.append(f'🏛 <b>Theatre:</b> <a href="{t_link}">{name} ({day_str})</a>')
     if venue == "ASLC":
         lines.append('🍿 <b>Ariesplex:</b> <a href="https://www.ariesplex.com/book-tickets">ariesplex.com/book-tickets</a>')
+
+    if shows:
+        lines.append("")
+        lines.append("<b>Available Shows:</b>")
+        lines += [fmt_show(s, "🔥 " if i == 0 else "• ") for i, s in enumerate(shows[:n])]
+        if len(shows) > n:
+            lines.append(f"…and {len(shows) - n} more")
     return "\n".join(lines)
 
 
@@ -357,19 +362,24 @@ def new_shows_message(venue: str, date: str, added: list[Show], all_shows: list[
     head = f"🔥 <b>NEW EARLIER {html.escape(MOVIE)} show added</b>" if earlier else f"➕ <b>More {html.escape(MOVIE)} shows added</b>"
     day_str = fmt_date(date)
     lines = [head, f"📍 <b>{name}</b> — {day_str}", ""]
-    lines += [fmt_show(s, "• ") for s in added[:10]]
-    lines += ["", f"Earliest now: <b>{html.escape(all_shows[0].time)}</b> ({html.escape(all_shows[0].screen)})"]
 
     first_show = all_shows[0] if all_shows else (added[0] if added else None)
     movie_name = first_show.title if first_show and first_show.title else MOVIE
     m_link = movie_booking_link(first_show, date, MOVIE)
     t_link = theatre_booking_link(venue, date)
 
-    lines.append("")
+    lines.append("👉 <b>BOOK TICKETS NOW:</b>")
     lines.append(f'🎬 <b>Movie:</b> <a href="{m_link}">Book {html.escape(movie_name)} ({day_str})</a>')
     lines.append(f'🏛 <b>Theatre:</b> <a href="{t_link}">{name} ({day_str})</a>')
     if venue == "ASLC":
         lines.append('🍿 <b>Ariesplex:</b> <a href="https://www.ariesplex.com/book-tickets">ariesplex.com/book-tickets</a>')
+
+    if all_shows:
+        lines.append("")
+        lines.append(f"Earliest now: <b>{html.escape(all_shows[0].time)}</b> ({html.escape(all_shows[0].screen)})")
+    if added:
+        lines.append("<b>Newly Added Shows:</b>")
+        lines += [fmt_show(s, "• ") for s in added[:10]]
     return "\n".join(lines)
 
 
@@ -609,15 +619,7 @@ def main() -> int:
 
         if not sample_shows:
             target_date = cfg.dates[0] if cfg.dates else "20261015"
-            sample_shows = [
-                Show(
-                    venue="ASLC", date=target_date, dt=f"{target_date}0400", time="04:00 AM",
-                    screen="AUDI 1", attrs="RGB 4K ATMOS", fmt="2D", lang="Tamil",
-                    title=MOVIE, min_price="250.00", max_price="500.00",
-                    avail="available", session="1001", event_code="", event_url=slugify(MOVIE),
-                )
-            ]
-            msg = open_message("ASLC", target_date, sample_shows, cfg.earliest_n, primary=True)
+            msg = open_message("ASLC", target_date, [], cfg.earliest_n, primary=True)
         else:
             msg = open_message("ASLC", today, sample_shows, cfg.earliest_n, primary=True)
 
