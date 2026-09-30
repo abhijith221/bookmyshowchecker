@@ -600,6 +600,17 @@ def main() -> int:
         return 0
 
     log(f"watching {cfg.movie_re.pattern!r} on {cfg.dates} at {cfg.venues} every ~{cfg.poll}s (+{cfg.poll_jitter:.0f}s jitter)")
+    if env("STARTUP_ALERT", "true").lower() in ("true", "1", "yes") and not a.once:
+        dates_str = ", ".join(fmt_date(d) for d in cfg.dates)
+        top_venues = ", ".join(VENUE_NAMES.get(v, v).split(",")[0] for v in cfg.venues[:3])
+        if len(cfg.venues) > 3:
+            top_venues += f" +{len(cfg.venues) - 3} more"
+        tg.send(
+            f"🚀 <b>{html.escape(MOVIE)} watcher is active</b>\n"
+            f"📅 Watching: {dates_str}\n"
+            f"📍 {len(cfg.venues)} theatres ({html.escape(top_venues)})\n"
+            f"⏱ Checking every ~{cfg.poll}s. You'll get an instant alert the second booking opens!"
+        )
     started = time.monotonic()
     while True:
         state = load_state(state_path)
