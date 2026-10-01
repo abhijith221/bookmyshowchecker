@@ -5,7 +5,7 @@ Sends a Telegram alert when BookMyShow opens **Jailer 2** bookings for the
 **earliest shows first**. It also watches Kairali Sree Nila, PVR Lulu, PVR Kripa,
 and Cinepolis MOT.
 
-- 🚨 Ariesplex opens → loud alert (3 pings) with the earliest shows, screen, format, price, availability, direct movie booking link on BookMyShow for that date, theatre showtimes link on BookMyShow for that date, and ariesplex.com
+- 🚨 Ariesplex opens → loud alert (3 pings) with the earliest shows (screen, format, price, availability). Each show has a **BOOK** link that opens its seat map directly. Also links to the theatre's page for that date, all Trivandrum shows that date, and the [Jailer 2 movie page](https://in.bookmyshow.com/movies/trivandrum/jailer-2/ET00518674)
 - ➕ More shows added later (for example a 4 AM fan show) → another alert with direct movie and theatre links for that date, marked 🔥 if it's earlier than anything seen before
 - ⚠️ BookMyShow unreachable or rate-limiting → it backs off automatically and warns you, then ✅ when it recovers
 - 👀 A daily "still alive" message at 9 AM IST, so silence never means "broken"
@@ -53,7 +53,7 @@ Your laptop sleeps, so it's not reliable. Pick one, or run **two for redundancy*
 | Option | Cost | Reliability | Notes |
 |---|---|---|---|
 | **Oracle Cloud "Always Free" VM** (or any small VPS / Raspberry Pi) | Free / ~₹300/mo | ⭐⭐⭐ best | Checks every 60s, `systemd` restarts it on crash/reboot. See `deploy/jailer-watch.service`. |
-| **GitHub Actions** (public repo) | Free | ⭐⭐ good | Already set up in `.github/workflows/watch.yml`. Add repo secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, then run it once from the Actions tab. Each run loops ~5h40m; the next one is queued to take over. Must be a **public** repo: private repos only get 2000 free min/month. |
+| **GitHub Actions** (public repo) | Free | ⭐⭐ good | Already set up in `.github/workflows/watch.yml`. Add repo secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, then run it once from the Actions tab. Each run loops ~5h40m and starts the next run itself before it ends, so there are no gaps (GitHub's cron alone only fired every 4–7 h). Only a push to `main` restarts the watcher. Must be a **public** repo: private repos only get 2000 free min/month. |
 
 On a new server, run `python3 jailer_watch.py --once --dry-run` first, to confirm
 BookMyShow isn't blocking that server's IP. If it gets blocked later, you'll get
@@ -96,7 +96,7 @@ The watcher is built to stay polite and to back off rather than get banned:
 
 See `.env.example`. Useful ones:
 
-- `TARGET_DATES=20261014,20261015` also catches eve/premiere shows.
+- `TARGET_DATES` defaults to `20261014,20261015`. The 14th catches eve/premiere shows, plus post-midnight fan shows that BookMyShow lists under the previous day.
 - If the release date moves, update `TARGET_DATES`.
 
 ## Tests

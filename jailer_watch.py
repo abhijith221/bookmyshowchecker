@@ -169,6 +169,10 @@ def fetch_showtimes(venue: str, date: str, timeout: int = 20, attempts: int = 3)
             last = e
         if i < attempts - 1:
             time.sleep(2 * (i + 1))
+    reason = getattr(last, "reason", last)
+    if isinstance(reason, ConnectionResetError):
+        # Repeated connection resets are how some firewalls throttle; back off like a 429.
+        raise Blocked(f"{venue} {date}: connection reset {attempts}x")
     raise ApiError(f"{venue} {date}: {last}")
 
 
@@ -223,7 +227,10 @@ def extract_shows(
                 event_url = str(ce.get("EventUrl") or "")
                 for st in ce.get("ShowTimes") or []:
                     sdt = str(st.get("ShowDateTime", ""))
-                    if str(st.get("ShowDateCode", date)) != date or not sdt.startswith(date):
+                    # ShowDateCode is the day-tab the show is listed under. A 12:30 AM fan show can
+                    # sit under the previous day's tab with a next-day ShowDateTime, so only the
+                    # code must match (the block Date check above already guards the fallback).
+                    if str(st.get("ShowDateCode", date)) != date or not sdt:
                         continue
                     out.append(
                         Show(
@@ -297,12 +304,21 @@ def movie_booking_link(
     city_slug: str = "",
     city_code: str = "",
 ) -> str:
-    """Direct BookMyShow link for Jailer 2 Trivandrum.
-
-    Uses the movie info page link which works now (before bookings open)
-    and redirects to booking page once bookings become available.
-    """
+    """Jailer 2 movie page for Trivandrum (has the "Book tickets" button once bookings open)."""
     return MOVIE_BOOKING_URL
+
+
+def movie_showtimes_link(show: Show | None, date: str) -> str:
+    """All Trivandrum theatres/times for the movie on `date` (one tap closer than the movie page)."""
+    code = (show.event_code if show and show.event_code else "") or MOVIE_EVENT_CODE
+    return f"https://in.bookmyshow.com/buytickets/{MOVIE_SLUG}-{CITY_SLUG}/movie-{CITY_CODE}-{code}-MT/{date}"
+
+
+def seat_link(s: Show) -> str:
+    """Straight to "How many seats?" for this exact show. Verified format on BookMyShow."""
+    if not (s.event_code and s.session):
+        return ""
+    return f"https://in.bookmyshow.com/movies/{CITY_SLUG}/seat-layout/{s.event_code}/{s.venue}/{s.session}/{s.date}"
 
 
 def theatre_booking_link(
@@ -331,7 +347,12 @@ def fmt_show(s: Show, mark: str = "") -> str:
     extra = " · ".join(x for x in (s.screen, s.attrs, s.fmt if s.fmt != "2D" else "", s.lang) if x)
     lo, hi = s.min_price.split(".")[0], s.max_price.split(".")[0]
     price = "" if not lo else f"₹{lo}" if lo == hi or not hi else f"₹{lo}–{hi}"
-    return f"{mark}<b>{html.escape(s.time)}</b>  {html.escape(extra)}  {price}  <i>{s.avail}</i>"
+    when = html.escape(s.time)
+    if s.dt[:8].isdigit() and s.dt[:8] != s.date:  # post-midnight show listed under previous day
+        when += f" ({fmt_date(s.dt[:8])})"
+    link = seat_link(s)
+    book = f'  <a href="{link}">BOOK</a>' if link else ""
+    return f"{mark}<b>{when}</b>  {html.escape(extra)}  {price}  <i>{s.avail}</i>{book}"
 
 
 def open_message(venue: str, date: str, shows: list[Show], n: int, primary: bool) -> str:
@@ -346,11 +367,11 @@ def open_message(venue: str, date: str, shows: list[Show], n: int, primary: bool
     m_link = movie_booking_link(first_show, date, MOVIE)
     t_link = theatre_booking_link(venue, date)
 
-    lines.append("👉 <b>BOOK TICKETS NOW:</b>")
-    lines.append(f'🎬 <b>Movie:</b> <a href="{m_link}">Book {html.escape(movie_name)} ({day_str})</a>')
-    lines.append(f'🏛 <b>Theatre:</b> <a href="{t_link}">{name} ({day_str})</a>')
-    if venue == "ASLC":
-        lines.append('🍿 <b>Ariesplex:</b> <a href="https://www.ariesplex.com/book-tickets">ariesplex.com/book-tickets</a>')
+    s_link = movie_showtimes_link(first_show, date)
+    lines.append("👉 <b>BOOK TICKETS NOW</b> (tap BOOK next to a show for its seat map):")
+    lines.append(f'🏛 <b>This theatre:</b> <a href="{t_link}">{name} ({day_str})</a>')
+    lines.append(f'🗓 <b>All Trivandrum shows:</b> <a href="{s_link}">{html.escape(MOVIE)} on {day_str}</a>')
+    lines.append(f'🎬 <b>Movie page:</b> <a href="{m_link}">{html.escape(movie_name)}</a>')
 
     if shows:
         lines.append("")
@@ -372,11 +393,11 @@ def new_shows_message(venue: str, date: str, added: list[Show], all_shows: list[
     m_link = movie_booking_link(first_show, date, MOVIE)
     t_link = theatre_booking_link(venue, date)
 
-    lines.append("👉 <b>BOOK TICKETS NOW:</b>")
-    lines.append(f'🎬 <b>Movie:</b> <a href="{m_link}">Book {html.escape(movie_name)} ({day_str})</a>')
-    lines.append(f'🏛 <b>Theatre:</b> <a href="{t_link}">{name} ({day_str})</a>')
-    if venue == "ASLC":
-        lines.append('🍿 <b>Ariesplex:</b> <a href="https://www.ariesplex.com/book-tickets">ariesplex.com/book-tickets</a>')
+    s_link = movie_showtimes_link(first_show, date)
+    lines.append("👉 <b>BOOK TICKETS NOW</b> (tap BOOK next to a show for its seat map):")
+    lines.append(f'🏛 <b>This theatre:</b> <a href="{t_link}">{name} ({day_str})</a>')
+    lines.append(f'🗓 <b>All Trivandrum shows:</b> <a href="{s_link}">{html.escape(MOVIE)} on {day_str}</a>')
+    lines.append(f'🎬 <b>Movie page:</b> <a href="{m_link}">{html.escape(movie_name)}</a>')
 
     if all_shows:
         lines.append("")
@@ -492,11 +513,12 @@ def check_once(cfg, state: dict, tg: Notifier) -> int:
             ok = tg.send(msg)
             for _ in range(repeats - 1):
                 time.sleep(2)
+                first_seat = seat_link(shows[0])
                 repeat_msg = (
                     f"🚨 <b>{html.escape(MOVIE)} — Ariesplex booking is OPEN!</b> 🚨\n"
-                    f"📅 {fmt_date(date)}\n"
-                    f'🎬 <a href="{movie_booking_link(shows[0], date, MOVIE)}">Book {html.escape(MOVIE)} on BookMyShow ({fmt_date(date)})</a>\n'
-                    f'🍿 <a href="https://www.ariesplex.com/book-tickets">Book on ariesplex.com</a>'
+                    f"📅 {fmt_date(date)} · earliest {html.escape(shows[0].time)} ({html.escape(shows[0].screen)})\n"
+                    + (f'🎟 <a href="{first_seat}">Book the earliest show now</a>\n' if first_seat else "")
+                    + f'🏛 <a href="{theatre_booking_link(venue, date)}">All Ariesplex shows ({fmt_date(date)})</a>'
                     if venue == "ASLC" else msg
                 )
                 tg.send(repeat_msg)
@@ -535,7 +557,9 @@ def maybe_heartbeat(cfg, state: dict, tg: Notifier) -> None:
         rows.append(f"{'✅' if ok else '⚠️'} {html.escape(VENUE_NAMES.get(v, v))}: "
                     f"{f'{n} {MOVIE} show(s)' if n else 'not open yet'}")
     days = (datetime.strptime(cfg.dates[-1], "%Y%m%d").date() - now.date()).days
-    if tg.send(f"👀 <b>{html.escape(MOVIE)} watcher is alive</b> — {days} day(s) to go\n" + "\n".join(rows)):
+    last_ok = state.get("last_ok", "never")[:16].replace("T", " ")
+    if tg.send(f"👀 <b>{html.escape(MOVIE)} watcher is alive</b> — {days} day(s) to go\n"
+               f"Last successful BookMyShow check: {html.escape(last_ok)} IST\n" + "\n".join(rows)):
         state["last_heartbeat"] = today
 
 
@@ -571,7 +595,7 @@ def main() -> int:
     cfg.movie_slug = MOVIE_SLUG
     cfg.open_browser = a.open_browser or env("OPEN_BROWSER", "false").lower() in ("true", "1", "yes")
     cfg.movie_re = re.compile(a.movie_regex or env("MOVIE_REGEX", r"\bjailer\s*(2|ii)\b"))
-    dates = (a.dates or env("TARGET_DATES", "20261015")).replace("today", now_ist().strftime("%Y%m%d"))
+    dates = (a.dates or env("TARGET_DATES", "20261014,20261015")).replace("today", now_ist().strftime("%Y%m%d"))
     cfg.dates = [d.strip() for d in dates.split(",") if d.strip()]
     cfg.venues = [v.strip().upper() for v in (a.venues or env("VENUES", "ASLC,KSNT,PLTD,PKKT,CMTT")).split(",") if v.strip()]
     cfg.poll = max(30, int(env("POLL_SECONDS", "60")))
@@ -620,13 +644,16 @@ def main() -> int:
         return 0
 
     log(f"watching {cfg.movie_re.pattern!r} on {cfg.dates} at {cfg.venues} every ~{cfg.poll}s (+{cfg.poll_jitter:.0f}s jitter)")
-    if env("STARTUP_ALERT", "true").lower() in ("true", "1", "yes") and not a.once:
+    boot_state = load_state(state_path)
+    today = now_ist().strftime("%Y-%m-%d")
+    if (env("STARTUP_ALERT", "true").lower() in ("true", "1", "yes") and not a.once
+            and boot_state.get("last_startup_alert") != today):
         dates_str = ", ".join(fmt_date(d) for d in cfg.dates)
         primary_name = VENUE_NAMES.get(cfg.venues[0], cfg.venues[0])
         other_names = [VENUE_NAMES.get(v, v) for v in cfg.venues[1:]]
         other_str = "\n• " + "\n• ".join(html.escape(n) for n in other_names)
         m_link = movie_booking_link(None, cfg.dates[0], MOVIE)
-        t_link = theatre_booking_link(cfg.venues[0], cfg.dates[0])
+        t_link = theatre_booking_link(cfg.venues[0], cfg.dates[-1])
         ok = tg.send(
             f"🚀 <b>{html.escape(MOVIE)} Watcher Connected & Active</b>\n\n"
             f"📍 <b>Primary Theatre:</b>\n• {html.escape(primary_name)} (checked every ~{cfg.poll}s)\n\n"
@@ -634,12 +661,13 @@ def main() -> int:
             f"📅 <b>Target Date:</b> {dates_str}\n"
             f"🎬 <b>BookMyShow Movie ID:</b> <code>{html.escape(MOVIE_EVENT_CODE)}</code>\n\n"
             f"👉 <b>DIRECT LINKS:</b>\n"
-            f'🎬 <b>Movie:</b> <a href="{m_link}">Book {html.escape(MOVIE)} on BMS ({fmt_date(cfg.dates[0])})</a>\n'
-            f'🏛 <b>Ariesplex BMS:</b> <a href="{t_link}">{html.escape(primary_name)} ({fmt_date(cfg.dates[0])})</a>\n'
-            f'🍿 <b>Ariesplex Direct:</b> <a href="https://www.ariesplex.com/book-tickets">ariesplex.com/book-tickets</a>\n\n'
-            f"<i>Monitoring 24/7. You will receive an immediate loud alert the second booking opens!</i>"
+            f'🎬 <b>Movie:</b> <a href="{m_link}">{html.escape(MOVIE)} on BookMyShow</a>\n'
+            f'🏛 <b>Ariesplex BMS:</b> <a href="{t_link}">{html.escape(primary_name)} ({fmt_date(cfg.dates[-1])})</a>\n\n'
+            f"<i>Checking Ariesplex about every minute. You will get a loud alert as soon as Jailer 2 shows appear.</i>"
         )
         if ok:
+            boot_state["last_startup_alert"] = today
+            save_state(state_path, boot_state)
             log("sent startup connection alert to Telegram")
         else:
             log("startup connection alert to Telegram failed or was skipped")

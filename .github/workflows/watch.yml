@@ -1,19 +1,25 @@
 name: jailer-watch
 
-# Near-continuous watching on GitHub's free runners:
-# each run loops for ~5h40m checking every minute; the next scheduled run
-# waits in the concurrency queue and starts as soon as the previous one ends.
-# Use a PUBLIC repo (unlimited free minutes). Private repos only get 2000 min/month.
+# Near-continuous watching on GitHub's free runners (public repo = unlimited minutes).
+#
+# Each run loops ~5h40m, checking every minute. GitHub's cron is unreliable (in practice
+# it fired only every 4-7 hours here), so each run ALSO starts its own successor at the end
+# ("Start next run" step). Scheduled/dispatched runs queue behind the running one instead of
+# cancelling it, so there is no gap. Only a push (new code) cancels the running watcher.
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/30 * * * *"   # safety net in case the chain ever breaks
   workflow_dispatch:
   push:
     branches: [main]
 
 concurrency:
   group: jailer-watch
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+permissions:
+  contents: read
+  actions: write   # lets a run start the next one
 
 jobs:
   watch:
@@ -38,7 +44,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          STARTUP_ALERT: "true"
+          STARTUP_ALERT: "true"      # sent at most once per day
           RUN_FOR_SECONDS: "20400"
         run: python jailer_watch.py
 
@@ -48,3 +54,13 @@ jobs:
         with:
           path: state.json
           key: jw-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Start next run (no gap between runs)
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Stop chaining once the release has passed (the script also exits by itself then).
+          if [ "$(TZ=Asia/Kolkata date +%Y%m%d)" -le 20261016 ]; then
+            gh workflow run watch.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
+          fi

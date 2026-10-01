@@ -248,8 +248,12 @@ class LinkGenerationTests(unittest.TestCase):
         self.assertIn("https://in.bookmyshow.com/movies/trivandrum/jailer-2/ET00518674", msg)
         # Contains theatre booking link with date
         self.assertIn(f"buytickets/ASLC/{TARGET}", msg)
-        # ASLC includes direct ariesplex link
-        self.assertIn("https://www.ariesplex.com/book-tickets", msg)
+        # user's requested movie page link replaces the old ariesplex.com link
+        self.assertNotIn("ariesplex.com/book-tickets", msg)
+        # per-show seat-selection link (fastest path to booking)
+        self.assertIn(f"/movies/trivandrum/seat-layout/ET00123456/ASLC/s1/{TARGET}", msg)
+        # date-specific all-theatres showtimes link
+        self.assertIn(f"movie-triv-ET00123456-MT/{TARGET}", msg)
 
     def test_new_shows_message_contains_movie_date_and_theatre_links(self):
         s = jw.Show(
@@ -274,6 +278,33 @@ class LinkGenerationTests(unittest.TestCase):
         # Contains movie booking link (direct Trivandrum movie page)
         self.assertIn("https://in.bookmyshow.com/movies/trivandrum/jailer-2/ET00518674", msg)
         self.assertIn(f"buytickets/PLTD/{TARGET}", msg)
+
+
+class EdgeCaseTests(unittest.TestCase):
+    def test_post_midnight_fan_show_listed_under_previous_day_is_caught(self):
+        # 12:30 AM on 15 Oct listed under the 14 Oct tab (ShowDateCode=20261014)
+        st = show("202610150030", "m1"); st["ShowDateCode"] = "20261014"
+        data = resp("20261014", [event("Jailer 2", [st])])
+        got = jw.extract_shows(data, "ASLC", "20261014", RE)
+        self.assertEqual([g.session for g in got], ["m1"])
+        self.assertIn("Thu 15 Oct", jw.fmt_show(got[0]))  # real calendar day is shown
+
+    def test_fallback_still_ignored_with_relaxed_time_check(self):
+        data = resp("20261001", [event("Jailer 2", [show("202610011000", "x")])])
+        self.assertEqual(jw.extract_shows(data, "ASLC", "20261014", RE), [])
+
+    def test_connection_resets_become_blocked(self):
+        import urllib.error
+        err = urllib.error.URLError(ConnectionResetError(54, "reset"))
+        with mock.patch("urllib.request.urlopen", side_effect=err), mock.patch("time.sleep"):
+            with self.assertRaises(jw.Blocked):
+                jw.fetch_showtimes("ASLC", TARGET)
+
+    def test_plain_timeout_is_not_blocked(self):
+        with mock.patch("urllib.request.urlopen", side_effect=TimeoutError()), mock.patch("time.sleep"):
+            with self.assertRaises(jw.ApiError) as cm:
+                jw.fetch_showtimes("ASLC", TARGET)
+        self.assertNotIsInstance(cm.exception, jw.Blocked)
 
 
 if __name__ == "__main__":
