@@ -82,6 +82,7 @@ CITY_SLUG = "trivandrum"
 MOVIE = "Jailer 2"  # label used in messages; set via MOVIE_NAME
 MOVIE_EVENT_CODE = "ET00518674"  # BookMyShow official movie ID
 MOVIE_SLUG = "jailer-2"
+MOVIE_BOOKING_URL = "https://in.bookmyshow.com/movies/trivandrum/jailer-2/ET00518674"  # Direct link to Jailer 2 Trivandrum page
 
 AVAIL = {"0": "SOLD OUT", "1": "almost full", "2": "filling fast", "3": "available"}
 
@@ -296,20 +297,12 @@ def movie_booking_link(
     city_slug: str = "",
     city_code: str = "",
 ) -> str:
-    """Direct BookMyShow link for the movie on the given date in the city."""
-    c_slug = city_slug or CITY_SLUG
-    c_code = city_code or CITY_CODE
-    code = (show.event_code if show and show.event_code else "") or MOVIE_EVENT_CODE
-    slug = (show.event_url if show and show.event_url else "") or MOVIE_SLUG
-    if not slug:
-        slug = slugify(show.title if show and show.title else (movie_name or MOVIE))
-    if code and slug:
-        return f"https://in.bookmyshow.com/buytickets/{slug}-{c_slug}/movie-{c_code}-{code}-MT/{date}"
-    if code:
-        return f"https://in.bookmyshow.com/buytickets/{c_slug}/movie-{c_code}-{code}-MT/{date}"
-    if slug:
-        return f"https://in.bookmyshow.com/{c_slug}/movies/{slug}"
-    return f"https://in.bookmyshow.com/{c_slug}/movies"
+    """Direct BookMyShow link for Jailer 2 Trivandrum.
+
+    Uses the movie info page link which works now (before bookings open)
+    and redirects to booking page once bookings become available.
+    """
+    return MOVIE_BOOKING_URL
 
 
 def theatre_booking_link(

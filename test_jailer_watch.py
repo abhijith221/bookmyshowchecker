@@ -184,10 +184,8 @@ class LinkGenerationTests(unittest.TestCase):
             event_url="jailer-2",
         )
         url = jw.movie_booking_link(s, TARGET, "Jailer 2")
-        self.assertEqual(
-            url,
-            f"https://in.bookmyshow.com/buytickets/jailer-2-trivandrum/movie-triv-ET00123456-MT/{TARGET}",
-        )
+        # movie_booking_link now returns the direct Trivandrum movie page link
+        self.assertEqual(url, "https://in.bookmyshow.com/movies/trivandrum/jailer-2/ET00518674")
 
     def test_extract_shows_captures_event_metadata(self):
         ce_data = {
@@ -246,8 +244,8 @@ class LinkGenerationTests(unittest.TestCase):
         msg = jw.open_message("ASLC", TARGET, [s], 5, True)
         self.assertIn("BOOKING OPEN", msg)
         self.assertIn(TARGET, msg)
-        # Contains movie booking link with date
-        self.assertIn(f"movie-triv-ET00123456-MT/{TARGET}", msg)
+        # Contains movie booking link (direct Trivandrum movie page)
+        self.assertIn("https://in.bookmyshow.com/movies/trivandrum/jailer-2/ET00518674", msg)
         # Contains theatre booking link with date
         self.assertIn(f"buytickets/ASLC/{TARGET}", msg)
         # ASLC includes direct ariesplex link
@@ -273,7 +271,8 @@ class LinkGenerationTests(unittest.TestCase):
         )
         msg = jw.new_shows_message("PLTD", TARGET, [s], [s], True)
         self.assertIn("NEW EARLIER", msg)
-        self.assertIn(f"movie-triv-ET00123456-MT/{TARGET}", msg)
+        # Contains movie booking link (direct Trivandrum movie page)
+        self.assertIn("https://in.bookmyshow.com/movies/trivandrum/jailer-2/ET00518674", msg)
         self.assertIn(f"buytickets/PLTD/{TARGET}", msg)
 
 
